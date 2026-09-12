@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Voitures (Cars) :
+    // - Données publiques : lecture ouverte à tous pour la vitrine client
+    // - Écriture réservée exclusivement aux gérants connectés de l'agence
+    // - Données internes protégées : sous-collection privée accessible uniquement aux gérants
+    match /cars/{carId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+
+      match /private/{docId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // 1-bis. Données internes confidentielles des véhicules (cars_private) :
+    // - Contient matricule, kilométrage, vidange, notes de maintenance
+    // - Accessible STRICTEMENT aux gérants connectés (interdit au public)
+    match /cars_private/{carId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 2. Demandes de réservation publiques (Bookings) :
+    // - Tout visiteur public peut créer une nouvelle demande au statut initial "pending"
+    // - Validation stricte des types, champs obligatoires et interdiction des champs arbitraires/sensibles
+    // - Seuls les gérants connectés peuvent lire, valider, modifier ou supprimer les demandes
+    match /bookings/{bookingId} {
+      allow create: if isValidBookingCreate();
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // 3. Contrats de location & Bons d'état (Rentals) :
+    // - Données internes et identités clients (PII) strictement confidentielles
+    // - Lecture et écriture réservées aux gérants connectés
+    match /rentals/{rentalId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 4. Dépenses & Finances de l'agence (Expenses) :
+    // - Données comptables strictement confidentielles : gérants connectés uniquement
+    match /expenses/{expenseId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 5. Configuration et Paramètres de l'agence (Settings) :
+    // - Lecture publique pour afficher les coordonnées, horaires et conditions sur la vitrine
+    // - Modification réservée aux gérants connectés
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Verrouillage par défaut pour tout autre document non déclaré
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Fonction de validation stricte pour les demandes de réservation publiques
+    function isValidBookingCreate() {
+      let data = request.resource.data;
+      return data.status == 'pending'
+        && data.carId is string && data.carId.size() > 0 && data.carId.size() <= 100
+        && data.carName is string && data.carName.size() > 0 && data.carName.size() <= 100
+        && data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 100
+        && data.customerPhone is string && data.customerPhone.size() >= 8 && data.customerPhone.size() <= 30
+        && data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 30
+        && data.endDate is string && data.endDate.size() >= 8 && data.endDate.size() <= 30
+        && data.totalDays is number && data.totalDays >= 1 && data.totalDays <= 365
+        && data.pricePerDay is number && data.pricePerDay > 0
+        && data.estimatedTotal is number && data.estimatedTotal > 0
+        && data.keys().hasOnly([
+          'id', 'carId', 'carName', 'carImage', 'customerName', 'customerPhone',
+          'customerEmail', 'customerWilaya', 'customerPermitNumber', 'startDate',
+          'endDate', 'totalDays', 'pricePerDay', 'estimatedTotal', 'status',
+          'agencyNotes', 'createdAt'
+        ]);
+    }
+  }
+}
+
